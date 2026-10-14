@@ -1,8 +1,29 @@
 # LLVM instrumentation pass
 
 Плагин (`.so`) с инструментирующим пассом для LLVM New PM.
-Шаблон и описание структуры пасса — в комментариях в `LLVMInstrumentationPass.cpp`.
-Полная версия старого кода сохранена в `LLVMInstrumentationPass.full.cpp`.
+Описание структуры пасса — в комментариях в `LLVMInstrumentationPass.cpp`.
+Пасс привязан к `registerOptimizerLastEPCallback`, т.е. выполняется
+в конце пайплайна оптимизаций — уже на оптимизированном IR.
+
+## Что делает
+
+На каждую IR-инструкцию вставляет перед ней вызов `__inst_log_pair(user, op)`
+(см. `runtime.c`). В рантайме каждая пара печатается строкой вида
+
+```
+add <- load
+store <- alloca
+ret <- add
+```
+
+где слева — имя операции-user, справа — имя операции, породившей операнд.
+
+- **User** — все инструкции, кроме `phi` (по заданию), `llvm.dbg.*`, EH-падов
+  (`landingpad`/`catchswitch`/`catchpad`/`cleanuppad` — вставка перед ними
+  ломает IR) и `musttail call` + стоящего за ним `ret`.
+- **Operand** — только инструкции, т.е. результаты работы других инструкций.
+  Константы, аргументы, глобалы и метки ветвлений игнорируются. Инструкции
+  без инструкционных операндов строк в лог не дают.
 
 ## Сборка
 
@@ -13,29 +34,18 @@ clang++ LLVMInstrumentationPass.cpp -fPIC -shared \
 
 ## Запуск
 
-``` bash
-# автоматически, как часть пайплайна оптимизаций:
-clang -fpass-plugin=./libLLVMInstrumentationPass.so file.c -o file
-
-# явно, по имени пасса:
-opt -load-pass-plugin=./libLLVMInstrumentationPass.so \
-    -passes=llvminstrumentation -S file.ll -o /dev/null
-```
-
-## Важно: версии LLVM должны совпадать
-
-Заголовки, которыми компилируется плагин (`llvm-config --includedir`), обязаны
-совпадать с версией LLVM, которая грузит его в рантайме (`clang`/`opt`).
-Иначе плагин упадёт с SIGSEGV внутри STL/LLVM-кода.
-
-Проверка:
+`runtime.c` обязателен: без него линковка упадёт на `__inst_log_pair`.
 
 ``` bash
-llvm-config --version   # версия заголовков (dev)
-clang --version          # версия рантайма, который будет грузить плагин
-pacman -Q llvm llvm-libs clang
+clang -fpass-plugin=./libLLVMInstrumentationPass.so file.c runtime.c -o file
+./file                       # печатает лог в stdout
 ```
 
-Проверено на системе (после полного `pacman -Syu`): `llvm` = `llvm-libs` =
-`clang` = 23.1.1, glibc 2.44 — всё согласовано, `clang -fpass-plugin` и
-`opt -passes=llvminstrumentation` работают.
+`runtime.c` тоже проходит через пасс, но пропускается (префикс `__inst_`) —
+иначе логгер залогировал бы сам себя.
+
+Отдельно, без рантайма (только вставка вызовов в IR):
+
+``` bash
+clang -fpass-plugin=./libLLVMInstrumentationPass.so -S -emit-llvm file.c -o file.ll
+```
