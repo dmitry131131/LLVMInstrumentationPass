@@ -36,7 +36,6 @@ clang --version          # версия рантайма, который буд�
 pacman -Q llvm llvm-libs clang
 ```
 
-В текущем окружении наблюдается рассинхрон: `llvm` (заголовки) = 23.1.1,
-`llvm-libs`/`clang` = 22.1.5, поэтому `opt` вообще не запускается
-(нет `libLLVM.so.23.1`). Лечится полным обновлением системы
-(`sudo pacman -Syu`) либо откатом пакета `llvm` до 22.1.5.
+Проверено на системе (после полного `pacman -Syu`): `llvm` = `llvm-libs` =
+`clang` = 23.1.1, glibc 2.44 — всё согласовано, `clang -fpass-plugin` и
+`opt -passes=llvminstrumentation` работают.
